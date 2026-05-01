@@ -1,0 +1,42 @@
+name: sync-cardkingdom
+
+on:
+  schedule:
+    # Daily at 08:00 UTC (~03:00 CT). CK updates ~daily; one pull is enough.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      triggered_by:
+        description: 'Who/what triggered this manual run'
+        required: false
+        default: 'manual'
+
+concurrency:
+  group: sync-cardkingdom
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CK_PRICELIST_URL: https://api.cardkingdom.com/api/v2/pricelist
+      SYNC_TRIGGERED_BY: ${{ github.event_name == 'schedule' && 'cron' || format('manual:{0}', inputs.triggered_by) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run sync
+        run: pnpm sync

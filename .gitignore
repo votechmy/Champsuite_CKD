@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+*.log
+.DS_Store
+ck-sample.json
+.vercel
+.turbo
+next-env.d.ts
