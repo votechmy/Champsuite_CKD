@@ -1,56 +1,42 @@
 /**
  * sync-mtgjson.ts
  *
- * Pulls MTGJSON's AllIdentifiers + AllPricesToday, filters to the Card Kingdom
- * universe (only cards already in our `cards` table), upserts identifier
- * mappings + today's prices, prunes >3d, records the run.
+ * Pulls MTGJSON's cardIdentifiers (CSV, ~15MB gz) + AllPricesToday (JSON, ~5MB gz),
+ * filters to the Card Kingdom universe (only cards already in our `cards` table),
+ * upserts identifier mappings + today's prices, prunes >3d, records the run.
+ *
+ * Why CSV for identifiers (not AllIdentifiers.json):
+ *   AllIdentifiers.json.gz decompresses to >512MB, past Node's max string length.
+ *   The streaming-JSON workaround was brittle (subpath imports, factory-API guesses).
+ *   The CSV variant has the exact same id mappings, parses line by line with zero
+ *   dependencies via Node's built-in readline.
+ *
+ * Why bulk JSON for prices:
+ *   AllPricesToday.json.gz is ~50MB raw — well under the 512MB limit. JSON.parse
+ *   handles it fine in one pass.
  *
  * Decisions:
- *   - .json.gz over .json.xz so Node's built-in zlib handles decompression
- *     (no native deps, runs identically on Windows / Linux / GH runner).
  *   - 3-day retention (RETENTION_DAYS=3) keeps storage <150MB on top of CK.
  *   - Skip MTGO (cardhoarder) — paper-only tool.
- *   - Cardkingdom prices via MTGJSON are kept as a cross-check ("CK via MTGJSON")
+ *   - Cardkingdom prices via MTGJSON kept as a cross-check ("CK via MTGJSON")
  *     even though we have CK direct — useful for spotting MTGJSON ingest lag.
- *
- * Runs in two contexts:
- *   - GitHub Actions cron (daily 21:30 UTC = 5:30am MYT, 30 min after CK sync)
- *   - GitHub Actions workflow_dispatch
- *   - Local CLI: npm run sync:mtgjson
  */
 
-import { gunzipSync, createGunzip } from 'node:zlib';
+import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import { createRequire } from 'node:module';
+import { createInterface } from 'node:readline';
+import { gunzipSync } from 'node:zlib';
 import { getSupabaseAdmin } from '../lib/supabase/admin';
 
-// stream-json's package.json `exports` field doesn't expose subpaths like
-// `stream-json/filters/Pick` for ESM consumers, but tsx + Node CJS resolution
-// handles them fine. createRequire bypasses ESM resolution for these imports.
-const require = createRequire(import.meta.url);
-const { parser } = require('stream-json') as { parser: () => NodeJS.ReadWriteStream };
-const { pick } = require('stream-json/filters/pick.js') as { pick: (opts: { filter: string }) => NodeJS.ReadWriteStream };
-const { streamObject } = require('stream-json/streamers/stream-object.js') as { streamObject: () => NodeJS.ReadWriteStream };
-
 const PRICES_URL = process.env.MTGJSON_PRICES_URL ?? 'https://mtgjson.com/api/v5/AllPricesToday.json.gz';
-const IDENTIFIERS_URL = process.env.MTGJSON_IDENTIFIERS_URL ?? 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz';
+const IDENTIFIERS_URL = process.env.MTGJSON_IDENTIFIERS_URL ?? 'https://mtgjson.com/api/v5/csv/cardIdentifiers.csv.gz';
 const RETENTION_DAYS = 3;
 const IDENT_CHUNK = 1000;
 const PRICES_CHUNK = 1000;
 
-// Providers we care about. cardhoarder = MTGO tix, skip.
 const PAPER_PROVIDERS = ['cardkingdom', 'tcgplayer', 'cardmarket', 'cardsphere'] as const;
 type PaperProvider = (typeof PAPER_PROVIDERS)[number];
 
-const PROVIDER_CURRENCY: Record<PaperProvider, 'USD' | 'EUR'> = {
-  cardkingdom: 'USD',
-  tcgplayer: 'USD',
-  cardmarket: 'EUR',
-  cardsphere: 'USD',
-};
-
-// MTGJSON finish keys -> our normalized finish names.
 const FINISH_MAP: Record<string, 'nonfoil' | 'foil' | 'etched'> = {
   normal: 'nonfoil',
   foil: 'foil',
@@ -59,8 +45,14 @@ const FINISH_MAP: Record<string, 'nonfoil' | 'foil' | 'etched'> = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function toUuid(v: unknown): string | null {
-  if (typeof v !== 'string') return null;
+  if (typeof v !== 'string' || !v) return null;
   return UUID_RE.test(v) ? v : null;
+}
+
+function toInt(v: string | undefined): number | null {
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function chunked<T>(arr: T[], size: number): T[][] {
@@ -68,52 +60,6 @@ function chunked<T>(arr: T[], size: number): T[][] {
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
-
-async function fetchJsonGz<T>(url: string, label: string): Promise<T> {
-  console.log(`[mtgjson] fetching ${label} (${url}) ...`);
-  const t0 = Date.now();
-  const res = await fetch(url, { headers: { 'user-agent': 'champsuite-ckd-mtgjson/1.0' } });
-  if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  const gzBytes = buf.length;
-  const decompressed = gunzipSync(buf);
-  const json = JSON.parse(decompressed.toString('utf-8')) as T;
-  console.log(
-    `[mtgjson] ${label} fetched: ${gzBytes.toLocaleString()}B gz / ${decompressed.length.toLocaleString()}B raw in ${
-      Date.now() - t0
-    }ms`,
-  );
-  return json;
-}
-
-type IdentifierIds = {
-  cardKingdomId?: string;
-  cardKingdomFoilId?: string;
-  cardKingdomEtchedId?: string;
-  tcgplayerProductId?: string;
-  tcgplayerEtchedProductId?: string;
-  mcmId?: string;
-  scryfallId?: string;
-  name?: string;
-  setCode?: string;
-};
-
-type PriceFormats = {
-  paper?: Partial<
-    Record<
-      PaperProvider,
-      {
-        currency?: string;
-        retail?: { normal?: Record<string, number>; foil?: Record<string, number>; etched?: Record<string, number> };
-        buylist?: { normal?: Record<string, number>; foil?: Record<string, number>; etched?: Record<string, number> };
-      }
-    >
-  >;
-};
-
-type PricesFile = {
-  data: Record<string, PriceFormats>;
-};
 
 type IdentifierRow = {
   mtgjson_uuid: string;
@@ -133,12 +79,11 @@ type PriceRow = {
   finish: 'nonfoil' | 'foil' | 'etched';
   kind: 'retail' | 'buylist';
   currency: 'USD' | 'EUR';
-  captured_on: string; // YYYY-MM-DD
+  captured_on: string;
   price: number;
 };
 
 async function loadCkUniverse(supa: ReturnType<typeof getSupabaseAdmin>): Promise<Set<number>> {
-  // Page through cards.id (could be 150k+). Supabase caps at 1000/page by default.
   const PAGE = 1000;
   const out = new Set<number>();
   let from = 0;
@@ -153,86 +98,128 @@ async function loadCkUniverse(supa: ReturnType<typeof getSupabaseAdmin>): Promis
   return out;
 }
 
-function processIdentifierEntry(
-  rawUuid: string,
-  ids: IdentifierIds,
-  ckSet: Set<number>,
-  capturedAt: string,
-  rows: IdentifierRow[],
-  matchedUuids: Set<string>,
-): void {
-  const uuid = toUuid(rawUuid);
-  if (!uuid) return;
-
-  const tcgplayer = ids.tcgplayerProductId ? Number(ids.tcgplayerProductId) : null;
-  const tcgEtched = ids.tcgplayerEtchedProductId ? Number(ids.tcgplayerEtchedProductId) : null;
-  const mcm = ids.mcmId ? Number(ids.mcmId) : null;
-  const scry = toUuid(ids.scryfallId);
-  const name = ids.name ?? null;
-  const setCode = ids.setCode ?? null;
-
-  const candidates: Array<['nonfoil' | 'foil' | 'etched', number, number | null]> = [];
-  if (ids.cardKingdomId) candidates.push(['nonfoil', Number(ids.cardKingdomId), tcgplayer]);
-  if (ids.cardKingdomFoilId) candidates.push(['foil', Number(ids.cardKingdomFoilId), tcgplayer]);
-  if (ids.cardKingdomEtchedId) candidates.push(['etched', Number(ids.cardKingdomEtchedId), tcgEtched ?? tcgplayer]);
-
-  for (const [finish, ckId, tcgId] of candidates) {
-    if (!Number.isFinite(ckId) || !ckSet.has(ckId)) continue;
-    matchedUuids.add(uuid);
-    rows.push({
-      mtgjson_uuid: uuid,
-      finish,
-      cardkingdom_id: ckId,
-      tcgplayer_id: tcgId != null && Number.isFinite(tcgId) ? tcgId : null,
-      mcm_id: mcm != null && Number.isFinite(mcm) ? mcm : null,
-      scryfall_id: scry,
-      name,
-      set_code: setCode,
-      last_seen_at: capturedAt,
-    });
-  }
-}
-
 /**
- * Stream-parse AllIdentifiers.json.gz. The decompressed file is >512MB
- * (Node's max string length), so we can't .toString() the whole buffer.
- * stream-json walks the JSON without ever materializing it as one string.
+ * Stream-fetch the gzipped CSV, pipe through gunzip, then readline.
+ * Each line is a CSV row; first line is the header.
+ *
+ * The CSV is ~110k rows, ~30MB raw — small enough to hold all identifier rows
+ * in memory after filtering (typically ~50–80k matches).
  */
-async function streamIdentifiers(
+async function streamIdentifiersCsv(
   url: string,
   ckSet: Set<number>,
   capturedAt: string,
 ): Promise<{ rows: IdentifierRow[]; uuidsInDump: number; matchedUuids: Set<string> }> {
-  console.log(`[mtgjson] streaming AllIdentifiers (${url}) ...`);
+  console.log(`[mtgjson] streaming cardIdentifiers.csv (${url}) ...`);
   const t0 = Date.now();
   const res = await fetch(url, { headers: { 'user-agent': 'champsuite-ckd-mtgjson/1.0' } });
-  if (!res.ok) throw new Error(`AllIdentifiers HTTP ${res.status}`);
-  if (!res.body) throw new Error('AllIdentifiers response had no body');
+  if (!res.ok) throw new Error(`cardIdentifiers HTTP ${res.status}`);
+  if (!res.body) throw new Error('cardIdentifiers response had no body');
+
+  const nodeStream = Readable.fromWeb(res.body as unknown as Parameters<typeof Readable.fromWeb>[0]);
+  const gunzip = createGunzip();
+  nodeStream.pipe(gunzip);
+
+  const rl = createInterface({ input: gunzip, crlfDelay: Infinity });
 
   const rows: IdentifierRow[] = [];
   const matchedUuids = new Set<string>();
   let uuidsInDump = 0;
+  let header: string[] | null = null;
+  let colIdx: Record<string, number> = {};
 
-  const nodeStream = Readable.fromWeb(res.body as unknown as Parameters<typeof Readable.fromWeb>[0]);
-  const gunzip = createGunzip();
-  const jsonParser = parser();
-  const dataPicker = pick({ filter: 'data' });
-  const objectStreamer = streamObject();
-
-  objectStreamer.on('data', (entry: { key: string; value: IdentifierIds }) => {
-    uuidsInDump++;
-    processIdentifierEntry(entry.key, entry.value, ckSet, capturedAt, rows, matchedUuids);
-    if (uuidsInDump % 50000 === 0) {
-      console.log(`[mtgjson]   walked ${uuidsInDump.toLocaleString()} uuids, matched ${matchedUuids.size.toLocaleString()} so far`);
+  for await (const line of rl) {
+    if (!line) continue;
+    const cells = line.split(',');
+    if (!header) {
+      header = cells;
+      colIdx = Object.fromEntries(header.map((h, i) => [h.trim(), i]));
+      // Sanity: confirm the columns we need exist.
+      const need = ['uuid', 'cardKingdomId', 'cardKingdomFoilId', 'cardKingdomEtchedId', 'tcgplayerProductId', 'tcgplayerEtchedProductId', 'mcmId', 'scryfallId'];
+      for (const k of need) {
+        if (!(k in colIdx)) throw new Error(`cardIdentifiers.csv missing column: ${k}`);
+      }
+      continue;
     }
-  });
 
-  await pipeline(nodeStream, gunzip, jsonParser, dataPicker, objectStreamer);
+    uuidsInDump++;
+    const uuid = toUuid(cells[colIdx.uuid]);
+    if (!uuid) continue;
+
+    const ckNonfoil = toInt(cells[colIdx.cardKingdomId]);
+    const ckFoil = toInt(cells[colIdx.cardKingdomFoilId]);
+    const ckEtched = toInt(cells[colIdx.cardKingdomEtchedId]);
+    if (ckNonfoil == null && ckFoil == null && ckEtched == null) continue;
+
+    const tcgRegular = toInt(cells[colIdx.tcgplayerProductId]);
+    const tcgEtched = toInt(cells[colIdx.tcgplayerEtchedProductId]);
+    const mcm = toInt(cells[colIdx.mcmId]);
+    const scry = toUuid(cells[colIdx.scryfallId]);
+
+    const candidates: Array<['nonfoil' | 'foil' | 'etched', number | null, number | null]> = [
+      ['nonfoil', ckNonfoil, tcgRegular],
+      ['foil', ckFoil, tcgRegular],
+      ['etched', ckEtched, tcgEtched ?? tcgRegular],
+    ];
+
+    for (const [finish, ckId, tcgId] of candidates) {
+      if (ckId == null || !ckSet.has(ckId)) continue;
+      matchedUuids.add(uuid);
+      rows.push({
+        mtgjson_uuid: uuid,
+        finish,
+        cardkingdom_id: ckId,
+        tcgplayer_id: tcgId,
+        mcm_id: mcm,
+        scryfall_id: scry,
+        name: null,        // CSV doesn't carry name/setCode; cards table covers it via join
+        set_code: null,
+        last_seen_at: capturedAt,
+      });
+    }
+
+    if (uuidsInDump % 25000 === 0) {
+      console.log(`[mtgjson]   walked ${uuidsInDump.toLocaleString()} rows, matched ${matchedUuids.size.toLocaleString()} so far`);
+    }
+  }
 
   console.log(
-    `[mtgjson] AllIdentifiers streamed in ${Date.now() - t0}ms: ${uuidsInDump.toLocaleString()} uuids, ${matchedUuids.size.toLocaleString()} matched, ${rows.length.toLocaleString()} rows`,
+    `[mtgjson] cardIdentifiers parsed in ${Date.now() - t0}ms: ${uuidsInDump.toLocaleString()} rows, ${matchedUuids.size.toLocaleString()} matched, ${rows.length.toLocaleString()} identifier rows after per-finish denorm`,
   );
   return { rows, uuidsInDump, matchedUuids };
+}
+
+type PriceFormats = {
+  paper?: Partial<
+    Record<
+      PaperProvider,
+      {
+        currency?: string;
+        retail?: { normal?: Record<string, number>; foil?: Record<string, number>; etched?: Record<string, number> };
+        buylist?: { normal?: Record<string, number>; foil?: Record<string, number>; etched?: Record<string, number> };
+      }
+    >
+  >;
+};
+
+type PricesFile = {
+  data: Record<string, PriceFormats>;
+};
+
+async function fetchPricesJsonGz(url: string): Promise<PricesFile> {
+  console.log(`[mtgjson] fetching AllPricesToday (${url}) ...`);
+  const t0 = Date.now();
+  const res = await fetch(url, { headers: { 'user-agent': 'champsuite-ckd-mtgjson/1.0' } });
+  if (!res.ok) throw new Error(`AllPricesToday HTTP ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const decompressed = gunzipSync(buf);
+  const json = JSON.parse(decompressed.toString('utf-8')) as PricesFile;
+  console.log(
+    `[mtgjson] AllPricesToday parsed: ${buf.length.toLocaleString()}B gz / ${decompressed.length.toLocaleString()}B raw in ${
+      Date.now() - t0
+    }ms`,
+  );
+  return json;
 }
 
 function buildPriceRows(file: PricesFile, matchedUuids: Set<string>): PriceRow[] {
@@ -262,7 +249,7 @@ function buildPriceRows(file: PricesFile, matchedUuids: Set<string>): PriceRow[]
               finish,
               kind,
               currency,
-              captured_on: date, // mtgjson dates are YYYY-MM-DD already
+              captured_on: date,
               price,
             });
           }
@@ -294,7 +281,6 @@ async function main() {
   let prunedCount = 0;
 
   try {
-    // 1. Build CK universe set from `cards`.
     console.log(`[mtgjson] loading CK universe from cards table ...`);
     const ckSet = await loadCkUniverse(supa);
     console.log(`[mtgjson] CK universe size: ${ckSet.size.toLocaleString()} ids`);
@@ -302,17 +288,13 @@ async function main() {
       throw new Error('cards table is empty — run sync-cardkingdom first');
     }
 
-    // 2. Identifiers — stream because file is too big for one string.
-    const { rows: identRows, uuidsInDump: idDump, matchedUuids } = await streamIdentifiers(
+    const { rows: identRows, uuidsInDump: idDump, matchedUuids } = await streamIdentifiersCsv(
       IDENTIFIERS_URL,
       ckSet,
       capturedAt,
     );
     uuidsInDump = idDump;
     uuidsMatched = matchedUuids.size;
-    console.log(
-      `[mtgjson] identifiers: ${idDump.toLocaleString()} uuids in dump, ${uuidsMatched.toLocaleString()} match CK universe (${identRows.length.toLocaleString()} rows after per-finish denorm)`,
-    );
 
     for (const batch of chunked(identRows, IDENT_CHUNK)) {
       const { error } = await supa
@@ -323,8 +305,7 @@ async function main() {
     }
     console.log(`[mtgjson] identifiers upsert done: ${identifiersUpserted.toLocaleString()}`);
 
-    // 3. Prices.
-    const prices = await fetchJsonGz<PricesFile>(PRICES_URL, 'AllPricesToday');
+    const prices = await fetchPricesJsonGz(PRICES_URL);
     const priceRows = buildPriceRows(prices, matchedUuids);
     console.log(`[mtgjson] price rows to upsert: ${priceRows.length.toLocaleString()}`);
 
@@ -340,7 +321,6 @@ async function main() {
     }
     console.log(`[mtgjson] prices upsert done: ${pricesUpserted.toLocaleString()}`);
 
-    // 4. Prune older than RETENTION_DAYS.
     const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const { error: pruneErr, count } = await supa
       .from('mtgjson_prices')
@@ -350,7 +330,6 @@ async function main() {
     prunedCount = count ?? 0;
     console.log(`[mtgjson] pruned ${prunedCount.toLocaleString()} rows older than ${cutoff}`);
 
-    // 5. Close.
     await supa
       .from('mtgjson_sync_runs')
       .update({
