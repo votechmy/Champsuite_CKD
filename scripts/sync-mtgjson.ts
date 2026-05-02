@@ -22,15 +22,16 @@
 import { gunzipSync, createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import StreamJsonParser from 'stream-json';
-import StreamPick from 'stream-json/filters/Pick';
-import StreamObject from 'stream-json/streamers/StreamObject';
+import { createRequire } from 'node:module';
 import { getSupabaseAdmin } from '../lib/supabase/admin';
 
-// CJS interop — these packages don't have proper ESM default exports.
-const { parser } = StreamJsonParser as unknown as { parser: () => NodeJS.ReadWriteStream };
-const { pick } = StreamPick as unknown as { pick: (opts: { filter: string }) => NodeJS.ReadWriteStream };
-const { streamObject } = StreamObject as unknown as { streamObject: () => NodeJS.ReadWriteStream };
+// stream-json's package.json `exports` field doesn't expose subpaths like
+// `stream-json/filters/Pick` for ESM consumers, but tsx + Node CJS resolution
+// handles them fine. createRequire bypasses ESM resolution for these imports.
+const require = createRequire(import.meta.url);
+const { parser } = require('stream-json/src/index.js') as { parser: () => NodeJS.ReadWriteStream };
+const { pick } = require('stream-json/src/filters/pick.js') as { pick: (opts: { filter: string }) => NodeJS.ReadWriteStream };
+const { streamObject } = require('stream-json/src/streamers/stream-object.js') as { streamObject: () => NodeJS.ReadWriteStream };
 
 const PRICES_URL = process.env.MTGJSON_PRICES_URL ?? 'https://mtgjson.com/api/v5/AllPricesToday.json.gz';
 const IDENTIFIERS_URL = process.env.MTGJSON_IDENTIFIERS_URL ?? 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz';
