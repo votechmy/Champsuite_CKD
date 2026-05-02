@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { CardThumb } from '@/components/CardThumb';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,7 @@ type CardRow = {
   edition: string | null;
   variation: string | null;
   is_foil: boolean;
+  scryfall_id: string | null;
 };
 
 type LatestCk = {
@@ -69,7 +71,7 @@ export default async function ComparePage(props: { searchParams: Promise<SearchP
   // 1. Filter cards (CK universe).
   let cardsQ = supa
     .from('cards')
-    .select('id, name, edition, variation, is_foil', { count: 'exact' })
+    .select('id, name, edition, variation, is_foil, scryfall_id', { count: 'exact' })
     .order('name', { ascending: true });
   if (q) cardsQ = cardsQ.ilike('name', `%${q}%`);
   if (finish === 'foil') cardsQ = cardsQ.eq('is_foil', true);
@@ -196,6 +198,7 @@ export default async function ComparePage(props: { searchParams: Promise<SearchP
       <table className="cards">
         <thead>
           <tr>
+            <th></th>
             <th>Card</th>
             <th>Edition</th>
             <th>Finish</th>
@@ -227,6 +230,14 @@ export default async function ComparePage(props: { searchParams: Promise<SearchP
 
             return (
               <tr key={card.id}>
+                <td style={{ width: 64 }}>
+                  <CardThumb
+                    scryfallId={card.scryfall_id}
+                    name={card.name}
+                    edition={card.edition}
+                    finish={finishKey}
+                  />
+                </td>
                 <td>
                   <Link href={`/compare/${card.id}`}>{card.name}</Link>
                   {card.variation ? <span className="muted"> · {card.variation}</span> : null}
@@ -260,7 +271,7 @@ export default async function ComparePage(props: { searchParams: Promise<SearchP
           })}
           {cardRows.length === 0 ? (
             <tr>
-              <td colSpan={9} style={{ padding: 32, textAlign: 'center' }} className="muted">
+              <td colSpan={10} style={{ padding: 32, textAlign: 'center' }} className="muted">
                 No matches.
               </td>
             </tr>

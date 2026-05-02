@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { CardThumb } from '@/components/CardThumb';
 import { RefreshButton } from './refresh-button';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export default async function ListPage(props: { searchParams: Promise<SearchPara
   let query = supa
     .from('cards')
     .select(
-      `id, sku, name, edition, variation, is_foil,
+      `id, sku, name, edition, variation, is_foil, scryfall_id,
        card_prices_latest!inner ( price_retail, qty_retail, price_buy, qty_buying, captured_at )`,
       { count: 'exact' },
     );
@@ -114,6 +115,7 @@ export default async function ListPage(props: { searchParams: Promise<SearchPara
       <table className="cards">
         <thead>
           <tr>
+            <th></th>
             <th>Name</th>
             <th>Edition</th>
             <th>Foil</th>
@@ -139,6 +141,14 @@ export default async function ListPage(props: { searchParams: Promise<SearchPara
                   | null);
             return (
               <tr key={row.id}>
+                <td style={{ width: 64 }}>
+                  <CardThumb
+                    scryfallId={row.scryfall_id as string | null}
+                    name={row.name}
+                    edition={row.edition}
+                    finish={row.is_foil ? 'foil' : 'nonfoil'}
+                  />
+                </td>
                 <td>
                   <Link href={`/card/${row.id}`}>{row.name}</Link>
                   {row.variation ? <span className="muted"> · {row.variation}</span> : null}
@@ -163,7 +173,7 @@ export default async function ListPage(props: { searchParams: Promise<SearchPara
           })}
           {(data ?? []).length === 0 ? (
             <tr>
-              <td colSpan={8} style={{ padding: 32, textAlign: 'center' }} className="muted">
+              <td colSpan={9} style={{ padding: 32, textAlign: 'center' }} className="muted">
                 No matches.
               </td>
             </tr>

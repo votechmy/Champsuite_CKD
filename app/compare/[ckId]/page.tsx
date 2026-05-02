@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { CardThumb } from '@/components/CardThumb';
 
 export const dynamic = 'force-dynamic';
 
@@ -118,7 +119,13 @@ export default async function CompareDetail(props: { params: Promise<Params> }) 
         <Link href="/compare">← back to compare</Link>
       </p>
 
-      <div className="card-hero" style={{ display: 'flex', gap: 24, background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 20, marginBottom: 24 }}>
+      <div className="card-hero" style={{ display: 'flex', gap: 24, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 20, marginBottom: 24 }}>
+        <CardThumb
+          scryfallId={card.scryfall_id}
+          name={card.name}
+          edition={card.edition}
+          finish={finishKey}
+        />
         <div style={{ flex: 1 }}>
           <h1 style={{ margin: '0 0 6px', fontSize: 22 }}>{card.name}</h1>
           <div className="muted" style={{ marginBottom: 12 }}>

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { CardThumb } from '@/components/CardThumb';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,8 +30,16 @@ export default async function CardPage(props: { params: Promise<{ id: string }> 
       <p>
         <Link href="/list">← Back to list</Link>
       </p>
-      <h1>{card.name}</h1>
-      <p className="muted">
+      <div style={{ display: 'flex', gap: 'var(--s-4)', alignItems: 'flex-start' }}>
+        <CardThumb
+          scryfallId={card.scryfall_id}
+          name={card.name}
+          edition={card.edition}
+          finish={card.is_foil ? 'foil' : 'nonfoil'}
+        />
+        <div>
+          <h1>{card.name}</h1>
+          <p className="muted" style={{ marginTop: 6 }}>
         {card.edition ?? 'Unknown edition'}
         {card.variation ? ` · ${card.variation}` : ''}
         {card.is_foil ? ' · foil' : ''}
@@ -61,6 +70,8 @@ export default async function CardPage(props: { params: Promise<{ id: string }> 
           </>
         ) : null}
       </p>
+        </div>
+      </div>
 
       <h2 style={{ marginTop: 32 }}>Price history (last 60 snapshots)</h2>
       {(history ?? []).length === 0 ? (

@@ -32,31 +32,11 @@ function fmtRel(iso: string | null): string {
 }
 
 function statusChip(status: string) {
-  const color =
-    status === 'success' ? '#0a7d27' :
-    status === 'failure' ? '#c00' :
-    status === 'running' ? '#a06600' : '#666';
-  const bg =
-    status === 'success' ? '#e7f6ec' :
-    status === 'failure' ? '#fde8e8' :
-    status === 'running' ? '#fff5e0' : '#eee';
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: 12,
-        color,
-        background: bg,
-        fontSize: 12,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: 0.3,
-      }}
-    >
-      {status}
-    </span>
-  );
+  const cls =
+    status === 'success' ? 'pill pill-success' :
+    status === 'failure' ? 'pill pill-failure' :
+    status === 'running' ? 'pill pill-running' : 'pill';
+  return <span className={cls}>{status}</span>;
 }
 
 export default async function SyncLogPage(props: { searchParams: Promise<SearchParams> }) {
