@@ -10,3 +10,7 @@ ck-sample.json
 .vercel
 .turbo
 next-env.d.ts
+
+# Internal/integration docs that shouldn't ship to the public repo
+champ-suite-*.md
+.local/
