@@ -19,8 +19,18 @@
  *   - Local CLI: npm run sync:mtgjson
  */
 
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, createGunzip } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import StreamJsonParser from 'stream-json';
+import StreamPick from 'stream-json/filters/Pick';
+import StreamObject from 'stream-json/streamers/StreamObject';
 import { getSupabaseAdmin } from '../lib/supabase/admin';
+
+// CJS interop — these packages don't have proper ESM default exports.
+const { parser } = StreamJsonParser as unknown as { parser: () => NodeJS.ReadWriteStream };
+const { pick } = StreamPick as unknown as { pick: (opts: { filter: string }) => NodeJS.ReadWriteStream };
+const { streamObject } = StreamObject as unknown as { streamObject: () => NodeJS.ReadWriteStream };
 
 const PRICES_URL = process.env.MTGJSON_PRICES_URL ?? 'https://mtgjson.com/api/v5/AllPricesToday.json.gz';
 const IDENTIFIERS_URL = process.env.MTGJSON_IDENTIFIERS_URL ?? 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz';
@@ -75,21 +85,16 @@ async function fetchJsonGz<T>(url: string, label: string): Promise<T> {
   return json;
 }
 
-type IdentifiersFile = {
-  data: Record<
-    string,
-    {
-      cardKingdomId?: string;
-      cardKingdomFoilId?: string;
-      cardKingdomEtchedId?: string;
-      tcgplayerProductId?: string;
-      tcgplayerEtchedProductId?: string;
-      mcmId?: string;
-      scryfallId?: string;
-      name?: string;
-      setCode?: string;
-    }
-  >;
+type IdentifierIds = {
+  cardKingdomId?: string;
+  cardKingdomFoilId?: string;
+  cardKingdomEtchedId?: string;
+  tcgplayerProductId?: string;
+  tcgplayerEtchedProductId?: string;
+  mcmId?: string;
+  scryfallId?: string;
+  name?: string;
+  setCode?: string;
 };
 
 type PriceFormats = {
@@ -147,45 +152,85 @@ async function loadCkUniverse(supa: ReturnType<typeof getSupabaseAdmin>): Promis
   return out;
 }
 
-function buildIdentifierRows(file: IdentifiersFile, ckSet: Set<number>, capturedAt: string) {
-  const rows: IdentifierRow[] = [];
-  let uuidsInDump = 0;
-  const matchedUuids = new Set<string>();
+function processIdentifierEntry(
+  rawUuid: string,
+  ids: IdentifierIds,
+  ckSet: Set<number>,
+  capturedAt: string,
+  rows: IdentifierRow[],
+  matchedUuids: Set<string>,
+): void {
+  const uuid = toUuid(rawUuid);
+  if (!uuid) return;
 
-  for (const [rawUuid, ids] of Object.entries(file.data)) {
-    uuidsInDump++;
-    const uuid = toUuid(rawUuid);
-    if (!uuid) continue;
+  const tcgplayer = ids.tcgplayerProductId ? Number(ids.tcgplayerProductId) : null;
+  const tcgEtched = ids.tcgplayerEtchedProductId ? Number(ids.tcgplayerEtchedProductId) : null;
+  const mcm = ids.mcmId ? Number(ids.mcmId) : null;
+  const scry = toUuid(ids.scryfallId);
+  const name = ids.name ?? null;
+  const setCode = ids.setCode ?? null;
 
-    const tcgplayer = ids.tcgplayerProductId ? Number(ids.tcgplayerProductId) : null;
-    const tcgEtched = ids.tcgplayerEtchedProductId ? Number(ids.tcgplayerEtchedProductId) : null;
-    const mcm = ids.mcmId ? Number(ids.mcmId) : null;
-    const scry = toUuid(ids.scryfallId);
-    const name = ids.name ?? null;
-    const setCode = ids.setCode ?? null;
+  const candidates: Array<['nonfoil' | 'foil' | 'etched', number, number | null]> = [];
+  if (ids.cardKingdomId) candidates.push(['nonfoil', Number(ids.cardKingdomId), tcgplayer]);
+  if (ids.cardKingdomFoilId) candidates.push(['foil', Number(ids.cardKingdomFoilId), tcgplayer]);
+  if (ids.cardKingdomEtchedId) candidates.push(['etched', Number(ids.cardKingdomEtchedId), tcgEtched ?? tcgplayer]);
 
-    const candidates: Array<['nonfoil' | 'foil' | 'etched', number, number | null]> = [];
-    if (ids.cardKingdomId) candidates.push(['nonfoil', Number(ids.cardKingdomId), tcgplayer]);
-    if (ids.cardKingdomFoilId) candidates.push(['foil', Number(ids.cardKingdomFoilId), tcgplayer]);
-    if (ids.cardKingdomEtchedId) candidates.push(['etched', Number(ids.cardKingdomEtchedId), tcgEtched ?? tcgplayer]);
-
-    for (const [finish, ckId, tcgId] of candidates) {
-      if (!Number.isFinite(ckId) || !ckSet.has(ckId)) continue;
-      matchedUuids.add(uuid);
-      rows.push({
-        mtgjson_uuid: uuid,
-        finish,
-        cardkingdom_id: ckId,
-        tcgplayer_id: Number.isFinite(tcgId) ? tcgId : null,
-        mcm_id: Number.isFinite(mcm) ? mcm : null,
-        scryfall_id: scry,
-        name,
-        set_code: setCode,
-        last_seen_at: capturedAt,
-      });
-    }
+  for (const [finish, ckId, tcgId] of candidates) {
+    if (!Number.isFinite(ckId) || !ckSet.has(ckId)) continue;
+    matchedUuids.add(uuid);
+    rows.push({
+      mtgjson_uuid: uuid,
+      finish,
+      cardkingdom_id: ckId,
+      tcgplayer_id: tcgId != null && Number.isFinite(tcgId) ? tcgId : null,
+      mcm_id: mcm != null && Number.isFinite(mcm) ? mcm : null,
+      scryfall_id: scry,
+      name,
+      set_code: setCode,
+      last_seen_at: capturedAt,
+    });
   }
+}
 
+/**
+ * Stream-parse AllIdentifiers.json.gz. The decompressed file is >512MB
+ * (Node's max string length), so we can't .toString() the whole buffer.
+ * stream-json walks the JSON without ever materializing it as one string.
+ */
+async function streamIdentifiers(
+  url: string,
+  ckSet: Set<number>,
+  capturedAt: string,
+): Promise<{ rows: IdentifierRow[]; uuidsInDump: number; matchedUuids: Set<string> }> {
+  console.log(`[mtgjson] streaming AllIdentifiers (${url}) ...`);
+  const t0 = Date.now();
+  const res = await fetch(url, { headers: { 'user-agent': 'champsuite-ckd-mtgjson/1.0' } });
+  if (!res.ok) throw new Error(`AllIdentifiers HTTP ${res.status}`);
+  if (!res.body) throw new Error('AllIdentifiers response had no body');
+
+  const rows: IdentifierRow[] = [];
+  const matchedUuids = new Set<string>();
+  let uuidsInDump = 0;
+
+  const nodeStream = Readable.fromWeb(res.body as unknown as Parameters<typeof Readable.fromWeb>[0]);
+  const gunzip = createGunzip();
+  const jsonParser = parser();
+  const dataPicker = pick({ filter: 'data' });
+  const objectStreamer = streamObject();
+
+  objectStreamer.on('data', (entry: { key: string; value: IdentifierIds }) => {
+    uuidsInDump++;
+    processIdentifierEntry(entry.key, entry.value, ckSet, capturedAt, rows, matchedUuids);
+    if (uuidsInDump % 50000 === 0) {
+      console.log(`[mtgjson]   walked ${uuidsInDump.toLocaleString()} uuids, matched ${matchedUuids.size.toLocaleString()} so far`);
+    }
+  });
+
+  await pipeline(nodeStream, gunzip, jsonParser, dataPicker, objectStreamer);
+
+  console.log(
+    `[mtgjson] AllIdentifiers streamed in ${Date.now() - t0}ms: ${uuidsInDump.toLocaleString()} uuids, ${matchedUuids.size.toLocaleString()} matched, ${rows.length.toLocaleString()} rows`,
+  );
   return { rows, uuidsInDump, matchedUuids };
 }
 
@@ -256,9 +301,12 @@ async function main() {
       throw new Error('cards table is empty — run sync-cardkingdom first');
     }
 
-    // 2. Identifiers.
-    const idents = await fetchJsonGz<IdentifiersFile>(IDENTIFIERS_URL, 'AllIdentifiers');
-    const { rows: identRows, uuidsInDump: idDump, matchedUuids } = buildIdentifierRows(idents, ckSet, capturedAt);
+    // 2. Identifiers — stream because file is too big for one string.
+    const { rows: identRows, uuidsInDump: idDump, matchedUuids } = await streamIdentifiers(
+      IDENTIFIERS_URL,
+      ckSet,
+      capturedAt,
+    );
     uuidsInDump = idDump;
     uuidsMatched = matchedUuids.size;
     console.log(
