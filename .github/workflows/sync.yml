@@ -39,4 +39,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Run sync
-        run: pnpm sync
+        run: pnpm sync:ci

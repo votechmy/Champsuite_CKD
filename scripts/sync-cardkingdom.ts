@@ -54,6 +54,12 @@ function toBool(v: string | boolean | undefined): boolean {
   return v === 'true' || v === '1';
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function toUuid(v: string | null | undefined): string | null {
+  if (!v) return null;
+  return UUID_RE.test(v) ? v : null;
+}
+
 function chunked<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -91,17 +97,25 @@ async function main() {
     console.log(`[sync] fetched ${rowsInDump.toLocaleString()} rows`);
 
     // 3. Upsert identity into `cards`.
-    const cards = rows.map((r) => ({
-      id: r.id,
-      sku: r.sku,
-      scryfall_id: r.scryfall_id || null,
-      url_slug: r.url,
+    let badUuidCount = 0;
+    const cards = rows.map((r) => {
+      const uuid = toUuid(r.scryfall_id);
+      if (r.scryfall_id && !uuid) badUuidCount++;
+      return {
+        id: r.id,
+        sku: r.sku,
+        scryfall_id: uuid,
+        url_slug: r.url,
       name: r.name,
       variation: r.variation || null,
       edition: r.edition || null,
-      is_foil: toBool(r.is_foil),
-      last_seen_at: capturedAt,
-    }));
+        is_foil: toBool(r.is_foil),
+        last_seen_at: capturedAt,
+      };
+    });
+    if (badUuidCount > 0) {
+      console.warn(`[sync] WARNING: ${badUuidCount} rows had malformed scryfall_id, stored as null`);
+    }
 
     for (const batch of chunked(cards, CARDS_CHUNK)) {
       const { error } = await supa

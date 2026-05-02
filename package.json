@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "sync": "tsx scripts/sync-cardkingdom.ts",
+    "sync": "tsx --env-file=.env.local scripts/sync-cardkingdom.ts",
+    "sync:ci": "tsx scripts/sync-cardkingdom.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
