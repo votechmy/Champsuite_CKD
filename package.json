@@ -9,6 +9,8 @@
     "lint": "next lint",
     "sync": "tsx --env-file=.env.local scripts/sync-cardkingdom.ts",
     "sync:ci": "tsx scripts/sync-cardkingdom.ts",
+    "sync:mtgjson": "tsx --env-file=.env.local scripts/sync-mtgjson.ts",
+    "sync:mtgjson:ci": "tsx scripts/sync-mtgjson.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,0 +1,40 @@
+name: sync-mtgjson
+
+on:
+  schedule:
+    # 21:30 UTC = 5:30am MYT, 30 min after the CK sync (08:00 UTC = ... wait, see below)
+    # CK sync runs at 08:00 UTC. MTGJSON only refreshes once daily, but their build
+    # finishes well before 21:00 UTC. Running at 21:30 UTC gives us the freshest
+    # MTGJSON build and lines up with the operational 5am MYT health check.
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+    inputs:
+      triggered_by:
+        description: 'Who/what triggered this manual run'
+        required: false
+        default: 'manual'
+
+concurrency:
+  group: sync-mtgjson
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SYNC_TRIGGERED_BY: ${{ github.event_name == 'schedule' && 'cron' || format('manual:{0}', inputs.triggered_by) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run MTGJSON sync
+        run: npm run sync:mtgjson:ci

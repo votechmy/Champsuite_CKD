@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Multi-source price compare — mockup</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #1a1a1a;
+    background: #fafafa;
+  }
+  a { color: #0066cc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header {
+    display: flex; align-items: center; gap: 24px;
+    padding: 12px 24px; border-bottom: 1px solid #e5e5e5; background: #fff;
+  }
+  .header .brand { font-weight: 700; }
+  .header nav a { margin-right: 16px; color: #555; }
+  .header nav a.active { color: #0066cc; font-weight: 600; }
+
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  .toolbar {
+    display: flex; gap: 12px; align-items: center;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .toolbar input, .toolbar select {
+    padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px;
+    font-size: 14px; background: #fff;
+  }
+  .toolbar input { min-width: 280px; }
+  .toolbar .spacer { flex: 1; }
+  .toolbar button {
+    padding: 8px 14px; border: 1px solid #0066cc; background: #0066cc;
+    color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px;
+  }
+  .toolbar button.secondary {
+    background: #fff; color: #0066cc;
+  }
+
+  .muted { color: #666; font-size: 13px; }
+
+  table.cards {
+    width: 100%; border-collapse: collapse; background: #fff;
+    border: 1px solid #e5e5e5; border-radius: 6px; overflow: hidden;
+  }
+  table.cards th, table.cards td {
+    text-align: left; padding: 8px 12px; border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+  }
+  table.cards th { background: #f5f5f5; font-weight: 600; }
+  table.cards td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.cards tr:hover td { background: #f9fbff; }
+
+  .src-tag {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .src-ck { background: #fef0e6; color: #a04500; }
+  .src-tcg { background: #e6f0fe; color: #1d4eb1; }
+  .src-mkm { background: #ecf6ec; color: #1d6e2c; }
+  .src-csp { background: #f4ecfa; color: #6a2ca5; }
+  .src-mtgo { background: #f0f0f0; color: #444; }
+
+  .freshness {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .fresh-good { background: #0a7d27; }
+  .fresh-stale { background: #c79100; }
+  .fresh-old { background: #c00; }
+
+  .delta-up { color: #c00; font-weight: 600; }
+  .delta-down { color: #0a7d27; font-weight: 600; }
+  .delta-flat { color: #888; }
+
+  .sparkline { display: inline-block; vertical-align: middle; }
+
+  /* Detail view */
+  .card-hero {
+    display: flex; gap: 24px; align-items: flex-start;
+    background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+    padding: 20px; margin-bottom: 24px;
+  }
+  .card-hero img {
+    width: 180px; height: 252px; border-radius: 8px; background: #eee;
+    object-fit: cover;
+  }
+  .card-hero .meta h1 { margin: 0 0 6px; font-size: 22px; }
+  .card-hero .meta .sub { color: #666; font-size: 14px; margin-bottom: 12px; }
+  .card-hero .meta .ids { font-size: 12px; color: #888; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .card-hero .meta .ids div { margin-bottom: 2px; }
+  .card-hero .actions { margin-top: 14px; display: flex; gap: 8px; }
+  .card-hero .actions a {
+    padding: 6px 12px; border: 1px solid #ddd; border-radius: 6px;
+    font-size: 13px; background: #fafafa; color: #333;
+  }
+  .card-hero .actions a:hover { background: #f0f0f0; text-decoration: none; }
+
+  .panel-grid {
+    display: grid; grid-template-columns: 2fr 1fr; gap: 24px;
+  }
+
+  table.compare th, table.compare td { padding: 10px 12px; }
+  table.compare td.price { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 16px;
+  }
+  .summary-card {
+    background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .summary-label {
+    color: #666; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.4px; font-weight: 600; margin-bottom: 4px;
+  }
+  .summary-value { font-size: 18px; font-weight: 600; }
+  .summary-sub { color: #888; font-size: 12px; margin-top: 2px; }
+
+  /* Sticky col group highlight */
+  .col-ck { background: #fff8f0; }
+  .col-tcg { background: #f0f5ff; }
+  .col-mkm { background: #f0f8f0; }
+
+  table.cards th.col-ck, table.cards th.col-tcg, table.cards th.col-mkm {
+    border-bottom: 2px solid #ddd;
+  }
+
+  /* View switcher */
+  .view-switcher {
+    display: inline-flex; border: 1px solid #ddd; border-radius: 6px;
+    overflow: hidden; background: #fff;
+  }
+  .view-switcher a {
+    padding: 6px 12px; font-size: 13px; color: #555;
+    border-right: 1px solid #ddd;
+  }
+  .view-switcher a:last-child { border-right: 0; }
+  .view-switcher a.active { background: #0066cc; color: #fff; }
+  .view-switcher a:hover { text-decoration: none; }
+
+  /* Mock note banner */
+  .mock-banner {
+    background: #fff5e0; border: 1px solid #f0d090; color: #7a5500;
+    padding: 8px 14px; border-radius: 6px; font-size: 13px;
+    margin-bottom: 16px;
+  }
+
+  details.spread { cursor: pointer; }
+  details.spread summary { font-size: 13px; color: #0066cc; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <a href="#" class="brand">ChampSuite CKD</a>
+  <nav>
+    <a href="#">Pricelist</a>
+    <a href="#" class="active">Compare</a>
+    <a href="#">Sync log</a>
+  </nav>
+</header>
+
+<main>
+
+  <div class="mock-banner">
+    <strong>MOCKUP</strong> — static HTML preview. Numbers are illustrative, no live data.
+  </div>
+
+  <h1 style="margin:0 0 4px;">Compare prices across sources</h1>
+  <p class="muted">Card Kingdom (direct, ~3h fresh) + MTGJSON daily snapshot (TCGplayer, Cardmarket, Cardsphere, CK-via-MTGJSON for cross-check). 7-day history.</p>
+
+  <!-- ============== LIST VIEW ============== -->
+
+  <div class="toolbar" style="margin-top:20px;">
+    <input type="text" placeholder="Search by card name, set, or paste scryfall_id…" value="Lightning Bolt" />
+    <select>
+      <option>All editions</option>
+      <option>Modern Horizons 3</option>
+      <option>Foundations</option>
+      <option>Bloomburrow</option>
+    </select>
+    <select>
+      <option>Both finishes</option>
+      <option>Nonfoil only</option>
+      <option>Foil only</option>
+      <option>Etched only</option>
+    </select>
+    <select>
+      <option>Sort: Name A–Z</option>
+      <option>Sort: CK retail ↑</option>
+      <option>Sort: CK retail ↓</option>
+      <option>Sort: TCG vs CK spread (biggest gap)</option>
+      <option>Sort: Buylist opportunity (CK buy &gt; TCG low)</option>
+    </select>
+    <span class="spacer"></span>
+    <span class="view-switcher">
+      <a href="#" class="active">List</a>
+      <a href="#">Detail</a>
+    </span>
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="summary-label">Cards in DB</div>
+      <div class="summary-value">146,344</div>
+      <div class="summary-sub">CK pricelist universe</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">With MTGJSON match</div>
+      <div class="summary-value">142,108</div>
+      <div class="summary-sub">97.1% coverage</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Last CK sync</div>
+      <div class="summary-value"><span class="freshness fresh-good"></span>3h ago</div>
+      <div class="summary-sub">2026-05-02 02:00 UTC</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Last MTGJSON sync</div>
+      <div class="summary-value"><span class="freshness fresh-good"></span>2h ago</div>
+      <div class="summary-sub">2026-05-02 03:00 UTC</div>
+    </div>
+  </div>
+
+  <p class="muted" style="margin-bottom:8px;">
+    Showing 1–25 of 146,344 cards. Prices are <strong>retail</strong> (sell). Click a row for full source breakdown + 7d history.
+  </p>
+
+  <table class="cards compare">
+    <thead>
+      <tr>
+        <th>Card</th>
+        <th>Set</th>
+        <th>Finish</th>
+        <th class="num col-ck">CK direct</th>
+        <th class="num col-ck">CK buylist</th>
+        <th class="num col-tcg">TCG market</th>
+        <th class="num col-tcg">TCG low</th>
+        <th class="num col-mkm">Cardmarket</th>
+        <th class="num">Spread</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="#detail">Lightning Bolt</a></td>
+        <td>Modern Horizons 3</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$1.49</td>
+        <td class="num col-ck">$0.40</td>
+        <td class="num col-tcg price">$1.62</td>
+        <td class="num col-tcg">$1.10</td>
+        <td class="num col-mkm price">€1.35</td>
+        <td class="num"><span class="delta-up">+8.7%</span><div class="muted" style="font-size:11px;">TCG &gt; CK</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Lightning Bolt</a></td>
+        <td>Modern Horizons 3</td>
+        <td><span class="muted">foil</span></td>
+        <td class="num col-ck price">$8.99</td>
+        <td class="num col-ck">$3.50</td>
+        <td class="num col-tcg price">$11.42</td>
+        <td class="num col-tcg">$8.20</td>
+        <td class="num col-mkm price">€9.80</td>
+        <td class="num"><span class="delta-up">+27.0%</span><div class="muted" style="font-size:11px;">TCG &gt; CK</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Sol Ring</a></td>
+        <td>Commander 2021</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$1.99</td>
+        <td class="num col-ck">$0.60</td>
+        <td class="num col-tcg price">$1.85</td>
+        <td class="num col-tcg">$1.20</td>
+        <td class="num col-mkm price">€1.70</td>
+        <td class="num"><span class="delta-down">−7.0%</span><div class="muted" style="font-size:11px;">CK &gt; TCG</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">The One Ring</a></td>
+        <td>The Lord of the Rings</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$48.99</td>
+        <td class="num col-ck">$32.00</td>
+        <td class="num col-tcg price">$45.20</td>
+        <td class="num col-tcg">$41.50</td>
+        <td class="num col-mkm price">€42.80</td>
+        <td class="num"><span class="delta-down">−7.7%</span><div class="muted" style="font-size:11px;">CK &gt; TCG</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Black Lotus</a></td>
+        <td>Alpha</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$32,499.99</td>
+        <td class="num col-ck">$22,000.00</td>
+        <td class="num col-tcg price">$28,750.00</td>
+        <td class="num col-tcg">$25,000.00</td>
+        <td class="num col-mkm price"><span class="muted">—</span></td>
+        <td class="num"><span class="delta-down">−11.5%</span><div class="muted" style="font-size:11px;">CK &gt; TCG</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Mox Opal</a></td>
+        <td>Scars of Mirrodin</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$24.99</td>
+        <td class="num col-ck">$15.00</td>
+        <td class="num col-tcg price">$31.60</td>
+        <td class="num col-tcg">$26.40</td>
+        <td class="num col-mkm price">€27.20</td>
+        <td class="num"><span class="delta-up">+26.4%</span><div class="muted" style="font-size:11px;">TCG &gt; CK</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Tarmogoyf</a></td>
+        <td>Modern Horizons 2</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$3.49</td>
+        <td class="num col-ck">$1.20</td>
+        <td class="num col-tcg price">$3.85</td>
+        <td class="num col-tcg">$2.90</td>
+        <td class="num col-mkm price">€3.10</td>
+        <td class="num"><span class="delta-up">+10.3%</span><div class="muted" style="font-size:11px;">TCG &gt; CK</div></td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Bloodbraid Elf</a></td>
+        <td>Foundations</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$0.49</td>
+        <td class="num col-ck">$0.10</td>
+        <td class="num col-tcg price">$0.45</td>
+        <td class="num col-tcg">$0.25</td>
+        <td class="num col-mkm price">€0.40</td>
+        <td class="num"><span class="delta-flat">−8.2%</span></td>
+      </tr>
+      <tr style="background:#fffaeb;">
+        <td><a href="#detail">Ragavan, Nimble Pilferer</a> <span class="muted" style="font-size:11px;">(opportunity)</span></td>
+        <td>Modern Horizons 2</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$59.99</td>
+        <td class="num col-ck"><strong>$45.00</strong></td>
+        <td class="num col-tcg price">$58.20</td>
+        <td class="num col-tcg">$42.00</td>
+        <td class="num col-mkm price">€51.40</td>
+        <td class="num">
+          <details class="spread">
+            <summary>CK buys &gt; TCG low</summary>
+            <div class="muted" style="font-size:11px; margin-top:4px;">Buy from TCG @ $42 → sell to CK @ $45 = $3 spread/copy</div>
+          </details>
+        </td>
+      </tr>
+      <tr>
+        <td><a href="#detail">Counterspell</a></td>
+        <td>Foundations</td>
+        <td><span class="muted">nonfoil</span></td>
+        <td class="num col-ck price">$0.25</td>
+        <td class="num col-ck">$0.05</td>
+        <td class="num col-tcg price">$0.30</td>
+        <td class="num col-tcg">$0.15</td>
+        <td class="num col-mkm price">€0.25</td>
+        <td class="num"><span class="delta-up">+20.0%</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="display:flex; gap:8px; margin-top:16px; align-items:center;">
+    <span style="padding:6px 10px; border:1px solid #ddd; border-radius:4px; background:#fff; font-size:13px; color:#ccc;">← Prev</span>
+    <span class="muted">Page 1 / 5,854</span>
+    <a href="#" style="padding:6px 10px; border:1px solid #ddd; border-radius:4px; background:#fff; font-size:13px;">Next →</a>
+  </div>
+
+  <!-- ============== DETAIL VIEW ============== -->
+
+  <hr style="margin:48px 0; border:0; border-top:2px dashed #ccc;" id="detail" />
+  <h2 style="margin:0 0 4px;">Detail view (click a row above)</h2>
+  <p class="muted">Full source breakdown + 7-day mini-trend per source.</p>
+
+  <div class="card-hero" style="margin-top:16px;">
+    <img src="https://cards.scryfall.io/normal/front/8/9/892ba1be-cd8e-4683-91ab-bdc62b9ed7e2.jpg" alt="Lightning Bolt" onerror="this.style.background='#444';this.alt='[card image]'" />
+    <div class="meta" style="flex:1;">
+      <h1>Lightning Bolt</h1>
+      <div class="sub">Modern Horizons 3 · Common · MH3-237 · nonfoil</div>
+      <div class="ids">
+        <div>scryfall_id: <code>892ba1be-cd8e-4683-91ab-bdc62b9ed7e2</code></div>
+        <div>ck_id: <code>289451</code> · tcgplayer_id: <code>552014</code> · mtgjson_uuid: <code>a77f1e80-…-c4</code></div>
+      </div>
+      <div class="actions">
+        <a href="https://www.cardkingdom.com/" target="_blank">Open on Card Kingdom ↗</a>
+        <a href="https://www.tcgplayer.com/" target="_blank">Open on TCGplayer ↗</a>
+        <a href="https://scryfall.com/" target="_blank">Open on Scryfall ↗</a>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div class="muted" style="font-size:12px;">Best retail</div>
+      <div style="font-size:24px; font-weight:700; color:#0a7d27;">$1.49</div>
+      <div class="muted" style="font-size:12px;">Card Kingdom</div>
+      <div style="margin-top:12px;" class="muted">Best buylist</div>
+      <div style="font-size:18px; font-weight:600;">$0.40 <span class="muted" style="font-size:12px;">CK</span></div>
+    </div>
+  </div>
+
+  <div class="panel-grid">
+
+    <div>
+      <h3 style="margin:0 0 8px;">All sources — today</h3>
+      <table class="cards compare">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Kind</th>
+            <th class="num">Price</th>
+            <th class="num">7-day</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="src-tag src-ck">CK direct</span></td>
+            <td>Retail</td>
+            <td class="num price">$1.49</td>
+            <td class="num">
+              <svg class="sparkline" width="80" height="24" viewBox="0 0 80 24">
+                <polyline fill="none" stroke="#0a7d27" stroke-width="1.5"
+                  points="0,14 13,12 26,15 39,11 52,10 65,9 80,8" />
+              </svg>
+              <span class="delta-down">−6%</span>
+            </td>
+            <td><span class="freshness fresh-good"></span><span class="muted">3h ago</span></td>
+          </tr>
+          <tr>
+            <td><span class="src-tag src-ck">CK direct</span></td>
+            <td>Buylist</td>
+            <td class="num price">$0.40</td>
+            <td class="num">
+              <svg class="sparkline" width="80" height="24" viewBox="0 0 80 24">
+                <polyline fill="none" stroke="#888" stroke-width="1.5"
+                  points="0,12 13,12 26,12 39,11 52,12 65,12 80,12" />
+              </svg>
+              <span class="delta-flat">flat</span>
+            </td>
+            <td><span class="freshness fresh-good"></span><span class="muted">3h ago</span></td>
+          </tr>
+          <tr>
+            <td><span class="src-tag src-ck">CK via MTGJSON</span></td>
+            <td>Retail</td>
+            <td class="num price">$1.49</td>
+            <td class="num"><span class="muted">—</span></td>
+            <td><span class="freshness fresh-stale"></span><span class="muted">21h ago</span></td>
+          </tr>
+          <tr>
+            <td><span class="src-tag src-tcg">TCGplayer</span></td>
+            <td>Retail (market)</td>
+            <td class="num price">$1.62</td>
+            <td class="num">
+              <svg class="sparkline" width="80" height="24" viewBox="0 0 80 24">
+                <polyline fill="none" stroke="#c00" stroke-width="1.5"
+                  points="0,16 13,15 26,13 39,11 52,9 65,7 80,5" />
+              </svg>
+              <span class="delta-up">+12%</span>
+            </td>
+            <td><span class="freshness fresh-stale"></span><span class="muted">21h ago</span></td>
+          </tr>
+          <tr>
+            <td><span class="src-tag src-tcg">TCGplayer</span></td>
+            <td>Retail (low)</td>
+            <td class="num price">$1.10</td>
+            <td class="num">
+              <svg class="sparkline" width="80" height="24" viewBox="0 0 80 24">
+                <polyline fill="none" stroke="#c00" stroke-width="1.5"
+                  points="0,14 13,13 26,12 39,11 52,10 65,9 80,9" />
+              </svg>
+              <span class="delta-up">+5%</span>
+            </td>
+            <td><span class="freshness fresh-stale"></span><span class="muted">21h ago</span></td>
+          </tr>
+          <tr>
+            <td><span class="src-tag src-mkm">Cardmarket</span></td>
+            <td>Retail (avg)</td>
+            <td class="num price">€1.35</td>
+            <td class="num">
+              <svg class="sparkline" width="80" height="24" viewBox="0 0 80 24">
+                <polyline fill="none" stroke="#1d6e2c" stroke-width="1.5"
+                  points="0,12 13,12 26,11 39,11 52,10 65,10 80,10" />
+              </svg>
+              <span class="delta-up">+3%</span>
+            </td>
+            <td><span class="freshness fresh-stale"></span><span class="muted">21h ago</span></td>
+          </tr>
+          <tr>
+            <td><span class="src-tag src-csp">Cardsphere</span></td>
+            <td>Buylist</td>
+            <td class="num price">$0.55</td>
+            <td class="num"><span class="muted">—</span></td>
+            <td><span class="freshness fresh-stale"></span><span class="muted">21h ago</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="margin:0 0 8px;">7-day combined</h3>
+      <div style="background:#fff; border:1px solid #e5e5e5; border-radius:8px; padding:14px;">
+        <svg width="100%" height="180" viewBox="0 0 320 180">
+          <!-- gridlines -->
+          <line x1="0" y1="40" x2="320" y2="40" stroke="#eee"/>
+          <line x1="0" y1="80" x2="320" y2="80" stroke="#eee"/>
+          <line x1="0" y1="120" x2="320" y2="120" stroke="#eee"/>
+          <line x1="0" y1="160" x2="320" y2="160" stroke="#eee"/>
+          <!-- CK retail -->
+          <polyline fill="none" stroke="#a04500" stroke-width="2"
+            points="10,120 60,118 110,124 160,114 210,108 260,100 310,96" />
+          <!-- TCG market -->
+          <polyline fill="none" stroke="#1d4eb1" stroke-width="2"
+            points="10,140 60,134 110,124 160,108 210,90 260,72 310,60" />
+          <!-- Cardmarket -->
+          <polyline fill="none" stroke="#1d6e2c" stroke-width="2"
+            points="10,128 60,128 110,124 160,124 210,120 260,118 310,118" />
+          <!-- legend -->
+          <g font-size="11" font-family="sans-serif">
+            <circle cx="14" cy="14" r="4" fill="#a04500"/>
+            <text x="22" y="17" fill="#444">CK</text>
+            <circle cx="60" cy="14" r="4" fill="#1d4eb1"/>
+            <text x="68" y="17" fill="#444">TCG market</text>
+            <circle cx="148" cy="14" r="4" fill="#1d6e2c"/>
+            <text x="156" y="17" fill="#444">Cardmarket</text>
+          </g>
+          <!-- x-axis labels -->
+          <g font-size="10" font-family="sans-serif" fill="#888">
+            <text x="10" y="178">Apr 26</text>
+            <text x="110" y="178">Apr 29</text>
+            <text x="210" y="178">May 1</text>
+            <text x="290" y="178">today</text>
+          </g>
+        </svg>
+        <p class="muted" style="margin:8px 0 0; font-size:12px;">
+          TCGplayer is up 12% over 7 days; CK has held steady. Cardmarket EUR shown as-is, no FX conversion in this view.
+        </p>
+      </div>
+
+      <h3 style="margin:20px 0 8px;">Spread analysis</h3>
+      <div style="background:#fff; border:1px solid #e5e5e5; border-radius:8px; padding:14px;">
+        <table style="width:100%; font-size:13px;">
+          <tr><td>TCG market vs CK retail</td><td class="num"><span class="delta-up">+8.7%</span></td></tr>
+          <tr><td>Cardmarket vs CK retail (USD est)</td><td class="num"><span class="delta-down">−2.0%</span></td></tr>
+          <tr><td>CK buylist vs TCG low</td><td class="num"><span class="delta-down">−63.6%</span></td></tr>
+          <tr><td>Best place to buy</td><td class="num" style="color:#0a7d27; font-weight:600;">TCG low ($1.10)</td></tr>
+          <tr><td>Best place to sell</td><td class="num" style="color:#0a7d27; font-weight:600;">TCG market ($1.62)</td></tr>
+        </table>
+      </div>
+
+      <h3 style="margin:20px 0 8px;">Other printings</h3>
+      <div style="background:#fff; border:1px solid #e5e5e5; border-radius:8px; padding:14px;">
+        <table style="width:100%; font-size:13px;">
+          <tr><td><a href="#">Foil — MH3</a></td><td class="num">$8.99</td></tr>
+          <tr><td><a href="#">Beta</a></td><td class="num">$489.99</td></tr>
+          <tr><td><a href="#">Magic 2010</a></td><td class="num">$2.49</td></tr>
+          <tr><td><a href="#">Masters 25</a></td><td class="num">$1.99</td></tr>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <hr style="margin:48px 0; border:0; border-top:2px dashed #ccc;" />
+
+  <h2 style="margin:0 0 8px;">Notes</h2>
+  <ul class="muted" style="font-size:13px; line-height:1.8;">
+    <li>CK direct = our existing 5am MYT sync, fresh within hours.</li>
+    <li>MTGJSON sync runs 30 min after CK (5:30am MYT). All non-CK sources lag ~24h behind their origin.</li>
+    <li>Spread % is computed against CK retail as the baseline.</li>
+    <li>FX for Cardmarket EUR shown raw; toggle for USD conversion is a V2 feature.</li>
+    <li>Buylist opportunity flag (highlighted yellow row) fires when CK buy &gt; TCG low — buy cheap, sell to CK.</li>
+  </ul>
+
+</main>
+
+</body>
+</html>
