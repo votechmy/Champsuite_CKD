@@ -12,7 +12,6 @@ const fraunces = Fraunces({
   variable: '--font-fraunces',
   display: 'swap',
   weight: ['400', '500', '600'],
-  axes: ['SOFT', 'opsz'],
 });
 
 // Body / UI / table cells. Tabular-nums on by default for prices.
