@@ -29,9 +29,9 @@ import { getSupabaseAdmin } from '../lib/supabase/admin';
 // `stream-json/filters/Pick` for ESM consumers, but tsx + Node CJS resolution
 // handles them fine. createRequire bypasses ESM resolution for these imports.
 const require = createRequire(import.meta.url);
-const { parser } = require('stream-json/src/index.js') as { parser: () => NodeJS.ReadWriteStream };
-const { pick } = require('stream-json/src/filters/pick.js') as { pick: (opts: { filter: string }) => NodeJS.ReadWriteStream };
-const { streamObject } = require('stream-json/src/streamers/stream-object.js') as { streamObject: () => NodeJS.ReadWriteStream };
+const { parser } = require('stream-json') as { parser: () => NodeJS.ReadWriteStream };
+const { pick } = require('stream-json/filters/pick.js') as { pick: (opts: { filter: string }) => NodeJS.ReadWriteStream };
+const { streamObject } = require('stream-json/streamers/stream-object.js') as { streamObject: () => NodeJS.ReadWriteStream };
 
 const PRICES_URL = process.env.MTGJSON_PRICES_URL ?? 'https://mtgjson.com/api/v5/AllPricesToday.json.gz';
 const IDENTIFIERS_URL = process.env.MTGJSON_IDENTIFIERS_URL ?? 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz';
