@@ -85,3 +85,28 @@ table.cards tr:hover td { background: #f9fbff; }
 
 .history-table { width: 100%; max-width: 600px; }
 .history-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+.summary-card {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.summary-label {
+  color: #666;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.summary-value {
+  font-size: 16px;
+  line-height: 1.4;
+}

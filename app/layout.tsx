@@ -14,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/" className="brand">ChampSuite CKD</a>
           <nav>
             <a href="/list">Pricelist</a>
+            <a href="/sync-log">Sync log</a>
           </nav>
         </header>
         <main>{children}</main>
