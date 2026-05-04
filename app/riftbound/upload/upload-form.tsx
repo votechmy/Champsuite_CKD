@@ -6,7 +6,7 @@ type Result =
   | { kind: 'idle' }
   | { kind: 'pending' }
   | { kind: 'ok'; batchId: number; parsed: number; upserted: number; failed: number; errors?: string[] }
-  | { kind: 'err'; status: number; message: string };
+  | { kind: 'err'; status: number; message: string; errors?: string[]; raw?: unknown };
 
 export function UploadForm() {
   const [file, setFile] = useState<File | null>(null);
@@ -29,7 +29,18 @@ export function UploadForm() {
       });
       const body = await res.json();
       if (!res.ok) {
-        setResult({ kind: 'err', status: res.status, message: body.error ?? `HTTP ${res.status}` });
+        const message =
+          body.error ??
+          (Array.isArray(body.errors) && body.errors.length > 0
+            ? body.errors[0]
+            : `HTTP ${res.status}`);
+        setResult({
+          kind: 'err',
+          status: res.status,
+          message,
+          errors: Array.isArray(body.errors) ? body.errors : undefined,
+          raw: body,
+        });
         return;
       }
       setResult({
@@ -141,6 +152,28 @@ export function UploadForm() {
           }}
         >
           <strong>Upload failed (HTTP {result.status}):</strong> {result.message}
+          {result.errors && result.errors.length > 1 ? (
+            <ul style={{ margin: '8px 0 0 16px', fontSize: 13 }}>
+              {result.errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          ) : null}
+          <details style={{ marginTop: 12, fontSize: 12 }}>
+            <summary style={{ cursor: 'pointer' }}>Raw response (for debugging)</summary>
+            <pre style={{
+              marginTop: 6,
+              padding: 8,
+              background: '#fff',
+              border: '1px solid #FCA5A5',
+              borderRadius: 4,
+              overflow: 'auto',
+              fontSize: 11,
+              color: '#1A1A1A',
+            }}>
+              {JSON.stringify(result.raw, null, 2)}
+            </pre>
+          </details>
         </div>
       ) : null}
     </form>
