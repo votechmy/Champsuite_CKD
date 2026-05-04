@@ -32,6 +32,7 @@ type CatalogRow = {
   rarity: string | null;
   type: string | null;
   image_url: string | null;
+  tcgplayer_id: number | null;
 };
 
 type LatestUpload = {
@@ -100,7 +101,7 @@ export default async function InventoryPage(props: { searchParams: Promise<Searc
   if (setIds.length > 0) {
     const { data: cat } = await supa
       .from('riftbound_cards')
-      .select('set_id, collector_number, name, rarity, type, image_url')
+      .select('set_id, collector_number, name, rarity, type, image_url, tcgplayer_id')
       .in('set_id', setIds)
       .in('collector_number', collectorNums);
     for (const c of (cat ?? []) as CatalogRow[]) {
@@ -209,12 +210,25 @@ export default async function InventoryPage(props: { searchParams: Promise<Searc
                 </td>
                 <td>
                   <div>{display}</div>
-                  {cat?.type ? (
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {cat.type}
-                      {cat.rarity ? ` · ${cat.rarity}` : ''}
-                    </div>
-                  ) : null}
+                  <div className="muted" style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                    {cat?.type ? (
+                      <span>
+                        {cat.type}
+                        {cat.rarity ? ` · ${cat.rarity}` : ''}
+                      </span>
+                    ) : null}
+                    {cat?.tcgplayer_id ? (
+                      <a
+                        href={`https://www.tcgplayer.com/product/${cat.tcgplayer_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open on TCGplayer"
+                        style={{ fontSize: 12 }}
+                      >
+                        TCGplayer ↗
+                      </a>
+                    ) : null}
+                  </div>
                 </td>
                 <td>
                   <code style={{ fontSize: 12 }}>{row.set_id}</code> · #{row.collector_num}
