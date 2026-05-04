@@ -85,13 +85,53 @@ type ParseResult = {
   errors: string[];
 };
 
+/**
+ * Split a single delimited line, respecting double-quoted cells (CSV-style
+ * quoting: a cell may be wrapped in "..." and contain the delimiter; "" is
+ * an escaped quote inside a quoted cell). Works for both ',' and '\t'.
+ */
+function splitDelimitedLine(line: string, delim: ',' | '\t'): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuote) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuote = false;
+        }
+      } else {
+        cur += c;
+      }
+    } else {
+      if (c === '"' && cur === '') {
+        inQuote = true;
+      } else if (c === delim) {
+        out.push(cur);
+        cur = '';
+      } else {
+        cur += c;
+      }
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
 function parseTsv(text: string): ParseResult {
   // Strip BOM and normalize line endings.
   const clean = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = clean.split('\n').filter((l) => l.trim().length > 0);
   if (lines.length < 2) return { rows: [], failed: 0, errors: ['empty file or header only'] };
 
-  const header = lines[0].split('\t').map((h) => h.trim().toLowerCase());
+  // Auto-detect delimiter: tab if present, else comma. Scanner exports vary.
+  const delim: ',' | '\t' = lines[0].includes('\t') ? '\t' : ',';
+
+  const header = splitDelimitedLine(lines[0], delim).map((h) => h.trim().toLowerCase());
   const idx = (name: string) => header.indexOf(name);
 
   const colSet = idx('set');
@@ -124,7 +164,7 @@ function parseTsv(text: string): ParseResult {
   let failed = 0;
 
   for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split('\t');
+    const cells = splitDelimitedLine(lines[i], delim);
     const uuid = cells[colUuid]?.trim();
     const set_id = cells[colSet]?.trim()?.toUpperCase();
     const collector_num = toInt(cells[colCollector]);
