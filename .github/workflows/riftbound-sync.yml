@@ -1,0 +1,35 @@
+name: sync-riftbound
+
+on:
+  schedule:
+    # Weekly, Monday 22:00 UTC. Riftbound releases new sets every few months —
+    # polling daily would be wasteful.
+    - cron: '0 22 * * 1'
+  workflow_dispatch:
+    inputs:
+      triggered_by:
+        description: 'Who/what triggered this manual run'
+        required: false
+        default: 'manual'
+
+concurrency:
+  group: sync-riftbound
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SYNC_TRIGGERED_BY: ${{ github.event_name == 'schedule' && 'cron' || format('manual:{0}', inputs.triggered_by) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run Riftbound sync
+        run: npm run sync:riftbound:ci

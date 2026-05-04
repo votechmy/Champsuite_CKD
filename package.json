@@ -11,6 +11,8 @@
     "sync:ci": "tsx scripts/sync-cardkingdom.ts",
     "sync:mtgjson": "tsx --env-file=.env.local scripts/sync-mtgjson.ts",
     "sync:mtgjson:ci": "tsx scripts/sync-mtgjson.ts",
+    "sync:riftbound": "tsx --env-file=.env.local scripts/sync-riftbound.ts",
+    "sync:riftbound:ci": "tsx scripts/sync-riftbound.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
