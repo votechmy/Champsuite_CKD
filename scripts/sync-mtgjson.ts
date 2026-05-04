@@ -30,7 +30,7 @@ import { getSupabaseAdmin } from '../lib/supabase/admin';
 
 const PRICES_URL = process.env.MTGJSON_PRICES_URL ?? 'https://mtgjson.com/api/v5/AllPricesToday.json.gz';
 const IDENTIFIERS_URL = process.env.MTGJSON_IDENTIFIERS_URL ?? 'https://mtgjson.com/api/v5/csv/cardIdentifiers.csv.gz';
-const RETENTION_DAYS = 3;
+const RETENTION_DAYS = 1;
 const IDENT_CHUNK = 1000;
 const PRICES_CHUNK = 1000;
 
