@@ -44,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <nav>
             <Link href="/list">Pricelist</Link>
             <Link href="/compare">Compare</Link>
+            <Link href="/riftbound/inventory">Riftbound</Link>
             <Link href="/sync-log">Sync log</Link>
           </nav>
         </header>
