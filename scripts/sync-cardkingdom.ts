@@ -41,7 +41,7 @@ type CkRow = {
 const CK_URL = process.env.CK_PRICELIST_URL ?? 'https://api.cardkingdom.com/api/v2/pricelist';
 const CARDS_CHUNK = 500;
 const PRICES_CHUNK = 1000;
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 1;
 
 function toNumber(v: string | number | null | undefined): number | null {
   if (v == null || v === '') return null;
